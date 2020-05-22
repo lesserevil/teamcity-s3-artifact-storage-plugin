@@ -5,3 +5,14 @@ s3-artifact-storage-agent/out/*
 s3-artifact-storage-common/out/*
 s3-artifact-storage-server/out/*
 .gradle/*
+*/.classpath
+*/.project
+.settings/**
+*.class
+*.prefs
+*/bin/test/**
+*/bin/main/**/*jsp
+s3-artifact-storage-agent/bin/main/META-INF/build-agent-plugin-s3-storage.xml
+*/build/**
+s3-artifact-storage-server/bin/main/META-INF/build-server-plugin-s3-storage.xml
+.project
