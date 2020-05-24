@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-//System.setProperty( "user.dir", project.projectDir.toString() + "/../" )
-
 dependencies {
   compileOnly "org.jetbrains.teamcity:common-api:${teamcityVersion}"
   compile("jetbrains.buildServer.util:amazon-util:${awsCoreVersion}") {
