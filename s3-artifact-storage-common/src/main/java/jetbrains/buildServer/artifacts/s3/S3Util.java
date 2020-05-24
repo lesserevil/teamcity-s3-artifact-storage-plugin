@@ -19,6 +19,7 @@ package jetbrains.buildServer.artifacts.s3;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.transfer.Transfer;
+import com.amazonaws.services.s3.transfer.TransferManagerConfiguration;
 import com.intellij.openapi.diagnostic.Logger;
 import java.io.File;
 import java.lang.reflect.Method;
@@ -185,28 +186,34 @@ public class S3Util {
   @SuppressWarnings("UnusedReturnValue")
   public static <T extends Transfer> Collection<T> withTransferManagerCorrectingRegion(@NotNull final Map<String, String> s3Settings,
                                                                                        @NotNull final WithTransferManager<T> withTransferManager) throws Throwable {
+    return withTransferManagerCorrectingRegion(s3Settings, null, withTransferManager);
+  }
+
+  @SuppressWarnings("UnusedReturnValue")
+  public static <T extends Transfer> Collection<T> withTransferManagerCorrectingRegion(@NotNull final Map<String, String> s3Settings, TransferManagerConfiguration config,
+                                                                                       @NotNull final WithTransferManager<T> withTransferManager) throws Throwable {
     try {
-      return withTransferManager(s3Settings, withTransferManager);
+      return withTransferManager(s3Settings, config, withTransferManager);
     } catch (RuntimeException e) {
       final String correctRegion = extractCorrectedRegion(e);
       if (correctRegion != null) {
         LOGGER.debug("Running operation with corrected S3 region [" + correctRegion + "]", e);
         s3Settings.put(REGION_NAME_PARAM, correctRegion);
-        return withTransferManager(s3Settings, withTransferManager);
+        return withTransferManager(s3Settings, config, withTransferManager);
       } else {
         throw e;
       }
     }
   }
 
-  private static <T extends Transfer> Collection<T> withTransferManager(@NotNull final Map<String, String> s3Settings,
+  private static <T extends Transfer> Collection<T> withTransferManager(@NotNull final Map<String, String> s3Settings, final TransferManagerConfiguration config,
                                                                         @NotNull final WithTransferManager<T> withTransferManager) throws Throwable {
     return AWSCommonParams.withAWSClients(s3Settings, new AWSCommonParams.WithAWSClients<Collection<T>, Throwable>() {
       @NotNull
       @Override
       public Collection<T> run(@NotNull AWSClients clients) throws Throwable {
         patchAWSClientsSsl(clients, s3Settings);
-        return jetbrains.buildServer.util.amazon.S3Util.withTransferManager(clients.createS3Client(), true, withTransferManager);
+        return jetbrains.buildServer.util.amazon.S3Util.withTransferManager(clients.createS3Client(), config, true, withTransferManager);
       }
     });
   }
