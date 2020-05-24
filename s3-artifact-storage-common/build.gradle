@@ -14,11 +14,14 @@
  * limitations under the License.
  */
 
+//System.setProperty( "user.dir", project.projectDir.toString() + "/../" )
+
 dependencies {
   compileOnly "org.jetbrains.teamcity:common-api:${teamcityVersion}"
   compile("jetbrains.buildServer.util:amazon-util:${awsCoreVersion}") {
     changing = true
   }
+  compile fileTree("../../teamcity-aws-core-plugin/aws-core-common/build/distributions")
   testCompile "org.testng:testng:6.8.21"
   testCompile "org.jetbrains.teamcity:tests-support:${teamcityVersion}"
 }
