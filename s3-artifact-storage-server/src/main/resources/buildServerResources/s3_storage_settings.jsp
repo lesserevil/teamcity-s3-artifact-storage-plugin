@@ -81,6 +81,14 @@
       <props:checkboxProperty name="${params.useSignatureVersion4}"/>Use Signature Version 4 in AWS KMS encryption
     </td>
   </tr>
+  <tr>
+    <th>Upload Settings:</th>
+    <td>
+      <props:checkboxProperty name="${params.withDisableParallelDownloads}"/>Disable Parallel Downloads</br>
+      <props:textProperty name="${params.withMinimumUploadPartSize}"/><span class="smallNote">Minimum Upload Part Size</br>
+      <props:textProperty name="${params.withMultipartUploadThreshold}"/><span class="smallNote">Multipart Upload Threshold
+    </td>
+  </tr>
 </l:settingsGroup>
 
 <script type="text/javascript">

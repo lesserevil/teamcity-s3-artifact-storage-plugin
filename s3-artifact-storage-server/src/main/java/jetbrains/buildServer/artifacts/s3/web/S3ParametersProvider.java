@@ -42,4 +42,16 @@ public class S3ParametersProvider {
   public String getForceVirtualHostAddressing() {
     return S3Constants.S3_FORCE_VIRTUAL_HOST_ADDRESSING;
   }
+
+  public String getWithDisableParallelDownloads() {
+    return S3Constants.S3CONFIG_DISABLE_PARALLEL_DOWNLOADS;
+  }
+
+  public String getWithMinimumUploadPartSize() {
+    return S3Constants.S3CONFIG_MINIMUM_UPLOAD_PART_SIZE;
+  }
+
+  public String getWithMultipartUploadThreshold() {
+    return S3Constants.S3CONFIG_MULTIPART_UPLOAD_THRESHOLD;
+  }
 }

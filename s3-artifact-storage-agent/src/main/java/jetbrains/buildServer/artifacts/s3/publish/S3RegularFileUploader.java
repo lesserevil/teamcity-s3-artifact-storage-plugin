@@ -22,6 +22,7 @@ import com.amazonaws.services.s3.model.CannedAccessControlList;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.transfer.TransferManager;
+import com.amazonaws.services.s3.transfer.TransferManagerConfiguration;
 import com.amazonaws.services.s3.transfer.Upload;
 import com.intellij.openapi.diagnostic.Logger;
 import java.io.File;
@@ -60,7 +61,7 @@ public class S3RegularFileUploader implements S3FileUploader {
   @Override
   public Collection<ArtifactDataInstance> publishFiles(@NotNull final AgentRunningBuild build,
                                                        @NotNull final String pathPrefix,
-                                                       @NotNull final Map<File, String> filesToPublish) {
+                                                       @NotNull final Map<File, String> filesToPublish) {                                                   
     final String homeDir = myBuildAgentConfiguration.getAgentHomeDirectory().getPath();
     final String certDirectory = TrustedCertificatesDirectory.getAllCertificatesDirectoryFromHome(homeDir);
     final int numberOfRetries = S3Util.getNumberOfRetries(build.getSharedConfigParameters());
@@ -76,7 +77,11 @@ public class S3RegularFileUploader implements S3FileUploader {
         .registerListener(new LoggingRetrier(LOG))
         .registerListener(new AbortingListener())
         .registerListener(new RetrierExponentialDelay(retryDelay));
-      S3Util.withTransferManagerCorrectingRegion(params, new jetbrains.buildServer.util.amazon.S3Util.WithTransferManager<Upload>() {
+      TransferManagerConfiguration config = new TransferManagerConfiguration();
+      config.setDisableParallelDownloads(S3Util.disableParallelUploads(params));
+      config.setMinimumUploadPartSize(S3Util.minimumUploadPartSize(params));
+      config.setMultipartUploadThreshold(S3Util.multipartUploadThreshold(params));
+      S3Util.withTransferManagerCorrectingRegion(params, config, new jetbrains.buildServer.util.amazon.S3Util.WithTransferManager<Upload>() {
         @NotNull
         @Override
         public Collection<Upload> run(@NotNull final TransferManager transferManager) {
