@@ -66,7 +66,12 @@ public class S3Util {
   @NotNull
   private static final String V4_SIGNER_TYPE = "AWSS3V4SignerType";
   @NotNull
-  private static final TransferManagerConfiguration defaultConfig = new TransferManagerConfiguration();
+  private static final Long DEFAULT_DOWNLOAD_CHUNK_SIZE = Long.valueOf(5 * 1024 * 1024);
+  @NotNull
+  private static final Long DEFAULT_MULTIPART_THRESHOLD = Long.valueOf(16 * 1024 * 1024);
+  @NotNull
+  private static final Double DEFAULT_MINIMUM_CHUNK_TO_THRESHOLD_RATIO = 1.0 * DEFAULT_MULTIPART_THRESHOLD
+      / DEFAULT_DOWNLOAD_CHUNK_SIZE;
 
   @NotNull
   public static Map<String, String> validateParameters(@NotNull Map<String, String> params, boolean acceptReferences) {
@@ -124,23 +129,31 @@ public class S3Util {
       try {
         return parseAny(properties.get(S3CONFIG_MINIMUM_UPLOAD_PART_SIZE));
       } catch (Exception e) {
-        LOGGER.warn("String {} does not parse as a 'long'. Using default instead."
-            .format(properties.get(S3CONFIG_MINIMUM_UPLOAD_PART_SIZE)));
+        LOGGER.warn(String.format("String {} does not parse as a 'long'. Using default instead.",
+            properties.get(S3CONFIG_MINIMUM_UPLOAD_PART_SIZE)));
       }
     }
-    return new Long(5*1024*1024);
+    return DEFAULT_DOWNLOAD_CHUNK_SIZE;
   }
 
   public static Long multipartUploadThreshold(@NotNull Map<String, String> properties) {
+    Long result = null;
     if (properties.containsKey(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD)) {
       try {
-        return parseAny(properties.get(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD));
+        result = parseAny(properties.get(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD));
       } catch (Exception e) {
-        LOGGER.warn("String {} does not parse as a 'long'. Using default instead."
-            .format(properties.get(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD)));
+        LOGGER.warn(String.format("String {} does not parse as a 'long'. Using default instead.",
+            properties.get(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD)));
       }
     }
-    return new Long(16*1024*1024);
+    if (result != null) {
+      if (result < Math.round(DEFAULT_MINIMUM_CHUNK_TO_THRESHOLD_RATIO * minimumUploadPartSize(properties))) {
+        result = Math.round(DEFAULT_MINIMUM_CHUNK_TO_THRESHOLD_RATIO * minimumUploadPartSize(properties));
+      }
+    } else {
+      result = DEFAULT_MULTIPART_THRESHOLD;
+    }
+    return result;
   }
 
   public static int getNumberOfRetries(@NotNull final Map<String, String> configurationParameters) {
@@ -180,23 +193,21 @@ public class S3Util {
   private static int indexOf(Pattern pattern, String s) {
     Matcher matcher = pattern.matcher(s);
     return matcher.find() ? matcher.start() : -1;
-  }    
+  }
 
-  private static long parseAny(String arg0)
-  {
+  private static long parseAny(String arg0) {
     int index = indexOf(Pattern.compile("[A-Za-z]"), arg0);
     double ret = Double.parseDouble(arg0.substring(0, index));
     String unitString = arg0.substring(index);
     int unitChar = unitString.charAt(0);
     int power = units.indexOf(unitChar);
-    boolean isSi = unitString.indexOf('i')!=-1;
+    boolean isSi = unitString.indexOf('i') != -1;
     int factor = 1024;
-    if (isSi) 
-    {
+    if (isSi) {
       factor = 1000;
     }
 
-    return new Double(ret * Math.pow(factor, power)).longValue();       
+    return new Double(ret * Math.pow(factor, power)).longValue();
   }
 
   @Nullable
