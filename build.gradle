@@ -44,6 +44,6 @@ subprojects {
   jar.version = null
 }
 
-task wrapper(type: Wrapper) {
-  gradleVersion = '4.9'
+wrapper {
+  gradleVersion = '5.1.1'
 }
