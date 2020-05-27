@@ -85,8 +85,8 @@
     <th>Upload Settings:</th>
     <td>
       <props:checkboxProperty name="${params.withDisableParallelDownloads}"/>Disable Parallel Downloads</br>
-      <props:textProperty name="${params.withMinimumUploadPartSize}"/><span class="smallNote">Minimum Upload Part Size</br>
-      <props:textProperty name="${params.withMultipartUploadThreshold}"/><span class="smallNote">Multipart Upload Threshold
+      <props:textProperty name="${params.withMinimumUploadPartSize}"/><span class="smallNote">Minimum Upload Part Size. Default: 5MiB. Integer with optional KMGT/KiMiGiTi suffix.</br>
+      <props:textProperty name="${params.withMultipartUploadThreshold}"/><span class="smallNote">Multipart Upload Threshold. Default: 16MiB. Integer with optoinal KMGT/KiMiGiTi suffix.
     </td>
   </tr>
 </l:settingsGroup>
