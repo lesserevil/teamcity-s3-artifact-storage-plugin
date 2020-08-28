@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import jetbrains.buildServer.artifacts.s3.S3Constants;
 import jetbrains.buildServer.artifacts.s3.S3Util;
 import jetbrains.buildServer.artifacts.s3.util.ParamUtil;
+import jetbrains.buildServer.serverSide.IOGuard;
 import jetbrains.buildServer.serverSide.ServerPaths;
 import jetbrains.buildServer.serverSide.TeamCityProperties;
 import jetbrains.buildServer.util.amazon.AWSCommonParams;
@@ -50,9 +51,9 @@ public class S3PreSignedUrlProviderImpl implements S3PreSignedUrlProvider {
   }
 
   private final Cache<String, String> myGetLinksCache = CacheBuilder.newBuilder()
-    .expireAfterWrite(getUrlLifetimeSec(), TimeUnit.SECONDS)
-    .maximumSize(200)
-    .build();
+                                                                    .expireAfterWrite(getUrlLifetimeSec(), TimeUnit.SECONDS)
+                                                                    .maximumSize(200)
+                                                                    .build();
 
   @Override
   public int getUrlLifetimeSec() {
@@ -91,6 +92,27 @@ public class S3PreSignedUrlProviderImpl implements S3PreSignedUrlProvider {
         httpMethod.name().toLowerCase(), objectKey, bucketName, awsException.getMessage()
       ), awsException);
     }
+  }
+
+  @NotNull
+  private Callable<String> getUrlResolver(@NotNull final HttpMethod httpMethod,
+                                          @NotNull final String bucketName,
+                                          @NotNull final String objectKey, @NotNull final Map<String, String> params) {
+    return () -> S3Util.withS3Client(ParamUtil.putSslValues(myServerPaths, params), client -> {
+      final GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucketName, objectKey, httpMethod)
+        .withExpiration(new Date(System.currentTimeMillis() + getUrlLifetimeSec() * 1000));
+      return IOGuard.allowNetworkCall(() -> {
+        try {
+          return client.generatePresignedUrl(request).toString();
+        } catch (Throwable t) {
+          if (t instanceof Exception) {
+            throw (Exception)t;
+          } else {
+            throw new Exception(t);
+          }
+        }
+      });
+    });
   }
 
   @NotNull
