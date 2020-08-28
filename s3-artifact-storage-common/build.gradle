@@ -16,7 +16,7 @@
 
 dependencies {
   compileOnly "org.jetbrains.teamcity:common-api:${teamcityVersion}"
-  compile("jetbrains.buildServer.util:amazon-util:${awsCoreVersion}") {
+  compile("jetbrains.buildServer.util:amazon-util:2019.2-SNAPSHOT") {
     changing = true
   }
   testCompile "org.testng:testng:6.8.21"

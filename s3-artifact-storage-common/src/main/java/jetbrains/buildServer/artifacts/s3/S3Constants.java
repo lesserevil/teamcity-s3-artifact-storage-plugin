@@ -38,6 +38,10 @@ public class S3Constants {
   public static final String S3_FORCE_VIRTUAL_HOST_ADDRESSING = "storage.s3.forceVirtualHostAddressing";
   public static final String S3_CLEANUP_BATCH_SIZE = "storage.s3.cleanup.batchSize";
 
+  public static final String S3CONFIG_DISABLE_PARALLEL_DOWNLOADS = "storage.s3.upload.config.disableParallelDownloads";
+  public static final String S3CONFIG_MINIMUM_UPLOAD_PART_SIZE = "storage.s3.upload.config.minimumUploadPartSize";
+  public static final String S3CONFIG_MULTIPART_UPLOAD_THRESHOLD = "storage.s3.upload.config.multipartUploadThreshold";
+
   public static final int DEFAULT_S3_URL_LIFETIME_SEC = 60;
   public static final int DEFAULT_S3_RETRY_DELAY_ON_ERROR_MS = 1000;
   public static final int DEFAULT_S3_NUMBER_OF_RETRIES_ON_ERROR = 5;

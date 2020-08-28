@@ -19,6 +19,7 @@ package jetbrains.buildServer.artifacts.s3;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.transfer.Transfer;
+import com.amazonaws.services.s3.transfer.TransferManagerConfiguration;
 import com.intellij.openapi.diagnostic.Logger;
 import java.io.File;
 import java.lang.reflect.Method;
@@ -27,6 +28,9 @@ import java.security.KeyStore;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import javax.net.ssl.SSLContext;
 import jetbrains.buildServer.artifacts.ArtifactListData;
 import jetbrains.buildServer.serverSide.TeamCityProperties;
@@ -48,8 +52,7 @@ import static jetbrains.buildServer.util.amazon.AWSCommonParams.REGION_NAME_PARA
 import static jetbrains.buildServer.util.amazon.AWSCommonParams.SSL_CERT_DIRECTORY_PARAM;
 
 /**
- * Created by Nikita.Skvortsov
- * date: 02.08.2016.
+ * Created by Nikita.Skvortsov date: 02.08.2016.
  */
 public class S3Util {
   @NotNull
@@ -62,6 +65,13 @@ public class S3Util {
   private static final Method FILE_TO_PATH_METHOD = getFileToPathMethod();
   @NotNull
   private static final String V4_SIGNER_TYPE = "AWSS3V4SignerType";
+  @NotNull
+  private static final Long DEFAULT_DOWNLOAD_CHUNK_SIZE = Long.valueOf(5 * 1024 * 1024);
+  @NotNull
+  private static final Long DEFAULT_MULTIPART_THRESHOLD = Long.valueOf(16 * 1024 * 1024);
+  @NotNull
+  private static final Double DEFAULT_MINIMUM_CHUNK_TO_THRESHOLD_RATIO = 1.0 * DEFAULT_MULTIPART_THRESHOLD
+      / DEFAULT_DOWNLOAD_CHUNK_SIZE;
 
   @NotNull
   public static Map<String, String> validateParameters(@NotNull Map<String, String> params, boolean acceptReferences) {
@@ -77,7 +87,8 @@ public class S3Util {
   }
 
   @NotNull
-  public static Map<String, String> validateParameters(@NotNull Map<String, String> params) throws IllegalArgumentException {
+  public static Map<String, String> validateParameters(@NotNull Map<String, String> params)
+      throws IllegalArgumentException {
     final Map<String, String> invalids = validateParameters(params, false);
     if (!invalids.isEmpty()) {
       throw new InvalidSettingsException(invalids);
@@ -109,6 +120,42 @@ public class S3Util {
     return Boolean.parseBoolean(properties.get(S3Constants.S3_USE_PRE_SIGNED_URL_FOR_UPLOAD));
   }
 
+  public static boolean disableParallelUploads(@NotNull Map<String, String> properties) {
+    return Boolean.parseBoolean(properties.get(S3CONFIG_DISABLE_PARALLEL_DOWNLOADS));
+  }
+
+  public static Long minimumUploadPartSize(@NotNull Map<String, String> properties) {
+    if (properties.containsKey(S3CONFIG_MINIMUM_UPLOAD_PART_SIZE)) {
+      try {
+        return parseAny(properties.get(S3CONFIG_MINIMUM_UPLOAD_PART_SIZE));
+      } catch (Exception e) {
+        LOGGER.warn(String.format("String {} does not parse as a 'long'. Using default instead.",
+            properties.get(S3CONFIG_MINIMUM_UPLOAD_PART_SIZE)));
+      }
+    }
+    return DEFAULT_DOWNLOAD_CHUNK_SIZE;
+  }
+
+  public static Long multipartUploadThreshold(@NotNull Map<String, String> properties) {
+    Long result = null;
+    if (properties.containsKey(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD)) {
+      try {
+        result = parseAny(properties.get(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD));
+      } catch (Exception e) {
+        LOGGER.warn(String.format("String {} does not parse as a 'long'. Using default instead.",
+            properties.get(S3CONFIG_MULTIPART_UPLOAD_THRESHOLD)));
+      }
+    }
+    if (result != null) {
+      if (result < Math.round(DEFAULT_MINIMUM_CHUNK_TO_THRESHOLD_RATIO * minimumUploadPartSize(properties))) {
+        result = Math.round(DEFAULT_MINIMUM_CHUNK_TO_THRESHOLD_RATIO * minimumUploadPartSize(properties));
+      }
+    } else {
+      result = DEFAULT_MULTIPART_THRESHOLD;
+    }
+    return result;
+  }
+
   public static int getNumberOfRetries(@NotNull final Map<String, String> configurationParameters) {
     try {
       final int nRetries = Integer.parseInt(configurationParameters.get(S3_NUMBER_OF_RETRIES_ON_ERROR));
@@ -132,7 +179,35 @@ public class S3Util {
   }
 
   private static boolean disablePathStyleAccess(@NotNull Map<String, String> properties) {
-    return Boolean.parseBoolean(properties.get(S3_FORCE_VIRTUAL_HOST_ADDRESSING));
+    final String fromSettings = properties.get(S3_FORCE_VIRTUAL_HOST_ADDRESSING);
+    if (fromSettings != null) {
+      return Boolean.parseBoolean(fromSettings);
+    } else {
+      return TeamCityProperties.getBoolean("teamcity.internal." + S3_FORCE_VIRTUAL_HOST_ADDRESSING);
+    }
+  }
+
+  private static String units = "BKMGTPEZY";
+
+  /** @return index of pattern in s or -1, if not found */
+  private static int indexOf(Pattern pattern, String s) {
+    Matcher matcher = pattern.matcher(s);
+    return matcher.find() ? matcher.start() : -1;
+  }
+
+  private static long parseAny(String arg0) {
+    int index = indexOf(Pattern.compile("[A-Za-z]"), arg0);
+    double ret = Double.parseDouble(arg0.substring(0, index));
+    String unitString = arg0.substring(index);
+    int unitChar = unitString.charAt(0);
+    int power = units.indexOf(unitChar);
+    boolean isSi = unitString.indexOf('i') != -1;
+    int factor = 1024;
+    if (isSi) {
+      factor = 1000;
+    }
+
+    return new Double(ret * Math.pow(factor, power)).longValue();
   }
 
   @Nullable
@@ -160,9 +235,8 @@ public class S3Util {
     return new SSLConnectionSocketFactory(sslContext);
   }
 
-  public static <T, E extends Throwable> T withS3Client(
-    @NotNull final Map<String, String> params,
-    @NotNull final WithS3<T, E> withClient) throws E {
+  public static <T, E extends Throwable> T withS3Client(@NotNull final Map<String, String> params,
+      @NotNull final WithS3<T, E> withClient) throws E {
     return AWSCommonParams.withAWSClients(params, new AWSCommonParams.WithAWSClients<T, E>() {
       @Nullable
       @Override
@@ -178,16 +252,24 @@ public class S3Util {
   }
 
   @SuppressWarnings("UnusedReturnValue")
-  public static <T extends Transfer> Collection<T> withTransferManagerCorrectingRegion(@NotNull final Map<String, String> s3Settings,
-                                                                                       @NotNull final WithTransferManager<T> withTransferManager) throws Throwable {
+  public static <T extends Transfer> Collection<T> withTransferManagerCorrectingRegion(
+      @NotNull final Map<String, String> s3Settings, @NotNull final WithTransferManager<T> withTransferManager)
+      throws Throwable {
+    return withTransferManagerCorrectingRegion(s3Settings, null, withTransferManager);
+  }
+
+  @SuppressWarnings("UnusedReturnValue")
+  public static <T extends Transfer> Collection<T> withTransferManagerCorrectingRegion(
+      @NotNull final Map<String, String> s3Settings, TransferManagerConfiguration config,
+      @NotNull final WithTransferManager<T> withTransferManager) throws Throwable {
     try {
-      return withTransferManager(s3Settings, withTransferManager);
+      return withTransferManager(s3Settings, config, withTransferManager);
     } catch (RuntimeException e) {
       final String correctRegion = extractCorrectedRegion(e);
       if (correctRegion != null) {
         LOGGER.debug("Running operation with corrected S3 region [" + correctRegion + "]", e);
         s3Settings.put(REGION_NAME_PARAM, correctRegion);
-        return withTransferManager(s3Settings, withTransferManager);
+        return withTransferManager(s3Settings, config, withTransferManager);
       } else {
         throw e;
       }
@@ -195,17 +277,18 @@ public class S3Util {
   }
 
   private static <T extends Transfer> Collection<T> withTransferManager(@NotNull final Map<String, String> s3Settings,
-                                                                        @NotNull final WithTransferManager<T> withTransferManager) throws Throwable {
+      final TransferManagerConfiguration config, @NotNull final WithTransferManager<T> withTransferManager)
+      throws Throwable {
     return AWSCommonParams.withAWSClients(s3Settings, new AWSCommonParams.WithAWSClients<Collection<T>, Throwable>() {
       @NotNull
       @Override
       public Collection<T> run(@NotNull AWSClients clients) throws Throwable {
         patchAWSClientsSsl(clients, s3Settings);
-        return jetbrains.buildServer.util.amazon.S3Util.withTransferManager(clients.createS3Client(), true, withTransferManager);
+        return jetbrains.buildServer.util.amazon.S3Util.withTransferManager(clients.createS3Client(), config, true,
+            withTransferManager);
       }
     });
   }
-
 
   private static void patchAWSClientsSsl(@NotNull final AWSClients clients, @NotNull final Map<String, String> params) {
     final ConnectionSocketFactory socketFactory = socketFactory(params);
@@ -223,7 +306,7 @@ public class S3Util {
       try {
         Object result = PROBE_CONTENT_TYPE_METHOD.invoke(null, FILE_TO_PATH_METHOD.invoke(file));
         if (result instanceof String) {
-          contentType = (String)result;
+          contentType = (String) result;
         }
       } catch (Exception ignored) {
       }
@@ -260,8 +343,7 @@ public class S3Util {
   }
 
   public static <T> T withClientCorrectingRegion(@NotNull final AmazonS3 s3Client,
-                                                 @NotNull final Map<String, String> settings,
-                                                 @NotNull final WithS3<T, AmazonS3Exception> withCorrectedClient) {
+      @NotNull final Map<String, String> settings, @NotNull final WithS3<T, AmazonS3Exception> withCorrectedClient) {
     try {
       return withCorrectedClient.run(s3Client);
     } catch (AmazonS3Exception awsException) {
@@ -279,8 +361,11 @@ public class S3Util {
 
   @Nullable
   private static String extractCorrectedRegion(@NotNull final Throwable e) {
-    @Nullable final AmazonS3Exception awsException = e instanceof AmazonS3Exception ? (AmazonS3Exception)e : ExceptionUtil.getCause(e, AmazonS3Exception.class);
-    if (awsException != null && TeamCityProperties.getBooleanOrTrue("teamcity.internal.storage.s3.autoCorrectRegion") && awsException.getAdditionalDetails() != null) {
+    @Nullable
+    final AmazonS3Exception awsException = e instanceof AmazonS3Exception ? (AmazonS3Exception) e
+        : ExceptionUtil.getCause(e, AmazonS3Exception.class);
+    if (awsException != null && TeamCityProperties.getBooleanOrTrue("teamcity.internal.storage.s3.autoCorrectRegion")
+        && awsException.getAdditionalDetails() != null) {
       final String correctRegion = awsException.getAdditionalDetails().get("Region");
       if (correctRegion != null) {
         return correctRegion;

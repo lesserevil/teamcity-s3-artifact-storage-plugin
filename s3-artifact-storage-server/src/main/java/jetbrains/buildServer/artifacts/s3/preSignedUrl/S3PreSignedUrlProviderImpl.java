@@ -64,7 +64,14 @@ public class S3PreSignedUrlProviderImpl implements S3PreSignedUrlProvider {
   @Override
   public String getPreSignedUrl(@NotNull HttpMethod httpMethod, @NotNull String bucketName, @NotNull String objectKey, @NotNull Map<String, String> params) throws IOException {
     try {
-      final Callable<String> resolver = getUrlResolver(httpMethod, bucketName, objectKey, params);
+      final Callable<String> resolver = () -> S3Util.withS3Client(ParamUtil.putSslValues(myServerPaths, params), client -> {
+        final GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucketName, objectKey, httpMethod)
+          .withExpiration(new Date(System.currentTimeMillis() + getUrlLifetimeSec() * 1000));
+        if (httpMethod == HttpMethod.GET) {
+          request.addRequestParameter("partNumber", "1");  // Hack to try to force a multi-part artifact download
+        }
+        return client.generatePresignedUrl(request).toString();
+      });
       if (httpMethod == HttpMethod.GET) {
         return TeamCityProperties.getBoolean(TEAMCITY_S3_PRESIGNURL_GET_CACHE_ENABLED)
           ? myGetLinksCache.get(getCacheIdentity(params, objectKey, bucketName), resolver)

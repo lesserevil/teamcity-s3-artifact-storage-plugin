@@ -78,8 +78,15 @@
     <th>Options:</th>
     <td>
       <props:checkboxProperty name="${params.usePresignUrlsForUpload}"/>Use Pre-Signed URLs for upload<br/>
-      <props:checkboxProperty name="${params.useSignatureVersion4}"/>Use Signature Version 4 in AWS KMS encryption<br/>
-      <props:checkboxProperty name="${params.forceVirtualHostAddressing}"/>Force Virtual Host Addressing
+      <props:checkboxProperty name="${params.useSignatureVersion4}"/>Use Signature Version 4 in AWS KMS encryption
+    </td>
+  </tr>
+  <tr>
+    <th>Upload Settings:</th>
+    <td>
+      <props:checkboxProperty name="${params.withDisableParallelDownloads}"/>Disable Parallel Downloads</br>
+      <props:textProperty name="${params.withMinimumUploadPartSize}"/><span class="smallNote">Minimum Upload Part Size. Default: 5MiB. Integer with optional KMGT/KiMiGiTi suffix.</br>
+      <props:textProperty name="${params.withMultipartUploadThreshold}"/><span class="smallNote">Multipart Upload Threshold. Default: 16MiB. Integer with optoinal KMGT/KiMiGiTi suffix.
     </td>
   </tr>
 </l:settingsGroup>
