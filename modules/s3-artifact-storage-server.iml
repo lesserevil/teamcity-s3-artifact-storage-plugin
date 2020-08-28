@@ -4,8 +4,19 @@
     <facet type="Spring" name="Spring">
       <configuration />
     </facet>
+    <facet type="web" name="s3-storage">
+      <configuration>
+        <webroots>
+          <root url="file://$MODULE_DIR$/../s3-artifact-storage-server/src/main/resources" relative="/plugins/s3-storage" />
+        </webroots>
+        <sourceRoots>
+          <root url="file://$MODULE_DIR$/../s3-artifact-storage-server/src/main/java" />
+          <root url="file://$MODULE_DIR$/../s3-artifact-storage-server/src/main/resources" />
+        </sourceRoots>
+      </configuration>
+    </facet>
   </component>
-  <component name="NewModuleRootManager" LANGUAGE_LEVEL="JDK_1_8">
+  <component name="NewModuleRootManager">
     <output url="file://$MODULE_DIR$/../s3-artifact-storage-server/target/classes" />
     <output-test url="file://$MODULE_DIR$/../s3-artifact-storage-server/target/test-classes" />
     <content url="file://$MODULE_DIR$/../s3-artifact-storage-server">
@@ -20,7 +31,6 @@
     <orderEntry type="module" module-name="s3-artifact-storage-common" />
     <orderEntry type="library" name="annotations.jar" level="project" />
     <orderEntry type="module" module-name="common" />
-    <orderEntry type="module" module-name="idea-obsolete-openapi" />
     <orderEntry type="module" module-name="server-openapi" />
     <orderEntry type="library" name="Guava" level="project" />
     <orderEntry type="module" module-name="server" />
