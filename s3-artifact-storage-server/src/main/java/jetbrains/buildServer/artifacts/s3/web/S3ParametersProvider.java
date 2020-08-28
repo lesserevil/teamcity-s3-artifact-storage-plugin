@@ -54,4 +54,8 @@ public class S3ParametersProvider {
   public String getWithMultipartUploadThreshold() {
     return S3Constants.S3CONFIG_MULTIPART_UPLOAD_THRESHOLD;
   }
+  
+  public String getPathPrefix() {
+    return S3Constants.S3_PATH_PREFIX_SETTING;
+  }
 }

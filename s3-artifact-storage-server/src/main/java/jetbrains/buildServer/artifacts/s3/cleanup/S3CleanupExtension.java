@@ -74,8 +74,9 @@ public class S3CleanupExtension implements CleanupExtension, PositionAware {
   }
 
   @Override
-  public void cleanupBuildsData(@NotNull BuildCleanupContext cleanupContext) {
+  public void cleanupBuildsData(@NotNull BuildCleanupContext cleanupContext) { 
     for (SFinishedBuild build : cleanupContext.getBuilds()) {
+
       try {
         final ArtifactListData artifactsInfo = myHelper.getArtifactList(build);
         if (artifactsInfo == null) {
@@ -102,7 +103,7 @@ public class S3CleanupExtension implements CleanupExtension, PositionAware {
   private void doClean(@NotNull ErrorReporter errorReporter, @NotNull SFinishedBuild build, @NotNull String pathPrefix, @NotNull List<String> pathsToDelete) throws IOException {
     final Map<String, String> params = S3Util.validateParameters(mySettingsProvider.getStorageSettings(build));
     final String bucketName = S3Util.getBucketName(params);
-    S3Util.withS3Client(ParamUtil.putSslValues(myServerPaths, params), client -> {
+    S3Util.withS3ClientShuttingDownImmediately(ParamUtil.putSslValues(myServerPaths, params), client -> {
       final String suffix = " from S3 bucket [" + bucketName + "]" + " from path [" + pathPrefix + "]";
 
       final AtomicInteger succeededNum = new AtomicInteger();
@@ -168,11 +169,6 @@ public class S3CleanupExtension implements CleanupExtension, PositionAware {
     final DeleteObjectsRequest deleteObjectsRequest = new DeleteObjectsRequest(bucketName).withKeys(objectKeys);
     return executeWithNewThreadName(info.get(),
                                     () -> doUnderContextClassLoader(S3Util.class.getClassLoader(), () -> client.deleteObjects(deleteObjectsRequest).getDeletedObjects().size()));
-  }
-
-  @Override
-  public void afterCleanup(@NotNull CleanupProcessState cleanupProcessState) {
-    // do nothing
   }
 
   @NotNull

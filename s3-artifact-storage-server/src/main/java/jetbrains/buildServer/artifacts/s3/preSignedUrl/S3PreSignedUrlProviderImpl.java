@@ -18,12 +18,14 @@ package jetbrains.buildServer.artifacts.s3.preSignedUrl;
 
 import com.amazonaws.HttpMethod;
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
+import com.amazonaws.services.s3.model.ResponseHeaderOverrides;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
 import java.io.IOException;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -40,20 +42,21 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Created by Evgeniy Koshkin (evgeniy.koshkin@jetbrains.com) on 19.07.17.
  */
+@SuppressWarnings("UnstableApiUsage")
 public class S3PreSignedUrlProviderImpl implements S3PreSignedUrlProvider {
   private static final Logger LOG = Logger.getInstance(S3PreSignedUrlProviderImpl.class.getName());
   private static final String TEAMCITY_S3_PRESIGNURL_GET_CACHE_ENABLED = "teamcity.s3.presignurl.get.cache.enabled";
+  private static final String TEAMCITY_S3_OVERRIDE_CONTENT_DISPOSITION = "teamcity.s3.override.content.disposition.enabled";
 
   private final ServerPaths myServerPaths;
-
-  public S3PreSignedUrlProviderImpl(@NotNull ServerPaths serverPaths) {
-    myServerPaths = serverPaths;
-  }
-
   private final Cache<String, String> myGetLinksCache = CacheBuilder.newBuilder()
                                                                     .expireAfterWrite(getUrlLifetimeSec(), TimeUnit.SECONDS)
                                                                     .maximumSize(200)
                                                                     .build();
+
+  public S3PreSignedUrlProviderImpl(@NotNull ServerPaths serverPaths) {
+    myServerPaths = serverPaths;
+  }
 
   @Override
   public int getUrlLifetimeSec() {
@@ -74,8 +77,8 @@ public class S3PreSignedUrlProviderImpl implements S3PreSignedUrlProvider {
       });
       if (httpMethod == HttpMethod.GET) {
         return TeamCityProperties.getBoolean(TEAMCITY_S3_PRESIGNURL_GET_CACHE_ENABLED)
-          ? myGetLinksCache.get(getCacheIdentity(params, objectKey, bucketName), resolver)
-          : resolver.call();
+               ? myGetLinksCache.get(getCacheIdentity(params, objectKey, bucketName), resolver)
+               : resolver.call();
       } else {
         return resolver.call();
       }
@@ -97,10 +100,20 @@ public class S3PreSignedUrlProviderImpl implements S3PreSignedUrlProvider {
   @NotNull
   private Callable<String> getUrlResolver(@NotNull final HttpMethod httpMethod,
                                           @NotNull final String bucketName,
-                                          @NotNull final String objectKey, @NotNull final Map<String, String> params) {
-    return () -> S3Util.withS3Client(ParamUtil.putSslValues(myServerPaths, params), client -> {
+                                          @NotNull final String objectKey,
+                                          @NotNull final Map<String, String> params) {
+    return () -> S3Util.withS3ClientShuttingDownImmediately(ParamUtil.putSslValues(myServerPaths, params), client -> {
       final GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucketName, objectKey, httpMethod)
         .withExpiration(new Date(System.currentTimeMillis() + getUrlLifetimeSec() * 1000));
+
+      if (TeamCityProperties.getBooleanOrTrue(TEAMCITY_S3_OVERRIDE_CONTENT_DISPOSITION)) {
+        final List<String> split = StringUtil.split(objectKey, "/");
+        if (!split.isEmpty()) {
+          request.withResponseHeaders(new ResponseHeaderOverrides()
+                                        .withContentDisposition("attachment; filename=\"" + split.get(split.size() - 1) + "\""));
+        }
+      }
+
       return IOGuard.allowNetworkCall(() -> {
         try {
           return client.generatePresignedUrl(request).toString();

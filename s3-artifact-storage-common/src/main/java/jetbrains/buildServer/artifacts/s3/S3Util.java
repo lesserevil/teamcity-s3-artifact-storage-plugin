@@ -56,6 +56,9 @@ import static jetbrains.buildServer.util.amazon.AWSCommonParams.SSL_CERT_DIRECTO
  */
 public class S3Util {
   @NotNull
+  private static final Pattern OUR_OBJECT_KEY_PATTERN = Pattern.compile("^[a-zA-Z0-9!/\\-_.*'()]+$");
+  private static final int OUT_MAX_PREFIX_LENGTH = 127;
+  @NotNull
   private static final Logger LOGGER = Logger.getInstance(S3Util.class.getName());
   @NotNull
   private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
@@ -74,21 +77,29 @@ public class S3Util {
       / DEFAULT_DOWNLOAD_CHUNK_SIZE;
 
   @NotNull
-  public static Map<String, String> validateParameters(@NotNull Map<String, String> params, boolean acceptReferences) {
+  public static Map<String, String> validateParameters(@NotNull final Map<String, String> params, final boolean acceptReferences) {
     final Map<String, String> commonErrors = AWSCommonParams.validate(params, acceptReferences);
     if (!commonErrors.isEmpty()) {
       return commonErrors;
     }
-    final Map<String, String> invalids = new HashMap<String, String>();
+    final Map<String, String> invalids = new HashMap<>();
     if (StringUtil.isEmptyOrSpaces(getBucketName(params))) {
       invalids.put(beanPropertyNameForBucketName(), "S3 bucket name must not be empty");
+    }
+    final String pathPrefix = params.getOrDefault(S3_PATH_PREFIX_SETTING, "");
+    if (TeamCityProperties.getBooleanOrTrue("teamcity.internal.storage.s3.bucket.prefix.enable") && !StringUtil.isEmptyOrSpaces(pathPrefix)) {
+      if (pathPrefix.length() > OUT_MAX_PREFIX_LENGTH) {
+        invalids.put(S3_PATH_PREFIX_SETTING, "Should be less than " + OUT_MAX_PREFIX_LENGTH + " characters");
+      }
+      if (!OUR_OBJECT_KEY_PATTERN.matcher(pathPrefix).matches()) {
+        invalids.put(S3_PATH_PREFIX_SETTING, "Should match the regexp [" + OUR_OBJECT_KEY_PATTERN.pattern() + "]");
+      }
     }
     return invalids;
   }
 
   @NotNull
-  public static Map<String, String> validateParameters(@NotNull Map<String, String> params)
-      throws IllegalArgumentException {
+  public static Map<String, String> validateParameters(@NotNull final Map<String, String> params) throws IllegalArgumentException {
     final Map<String, String> invalids = validateParameters(params, false);
     if (!invalids.isEmpty()) {
       throw new InvalidSettingsException(invalids);
@@ -102,21 +113,21 @@ public class S3Util {
   }
 
   @Nullable
-  public static String getBucketName(@NotNull Map<String, String> params) {
+  public static String getBucketName(@NotNull final Map<String, String> params) {
     return params.get(beanPropertyNameForBucketName());
   }
 
   @Nullable
-  public static String getPathPrefix(@NotNull ArtifactListData artifactsInfo) {
+  public static String getPathPrefix(@NotNull final ArtifactListData artifactsInfo) {
     return getPathPrefix(artifactsInfo.getCommonProperties());
   }
 
   @Nullable
-  public static String getPathPrefix(@NotNull Map<String, String> properties) {
+  public static String getPathPrefix(@NotNull final Map<String, String> properties) {
     return properties.get(S3Constants.S3_PATH_PREFIX_ATTR);
   }
 
-  public static boolean usePreSignedUrls(@NotNull Map<String, String> properties) {
+  public static boolean usePreSignedUrls(@NotNull final Map<String, String> properties) {
     return Boolean.parseBoolean(properties.get(S3Constants.S3_USE_PRE_SIGNED_URL_FOR_UPLOAD));
   }
 
@@ -174,7 +185,7 @@ public class S3Util {
     }
   }
 
-  private static boolean useSignatureVersion4(@NotNull Map<String, String> properties) {
+  private static boolean useSignatureVersion4(@NotNull final Map<String, String> properties) {
     return Boolean.parseBoolean(properties.get(S3_USE_SIGNATURE_V4));
   }
 
@@ -235,18 +246,30 @@ public class S3Util {
     return new SSLConnectionSocketFactory(sslContext);
   }
 
-  public static <T, E extends Throwable> T withS3Client(@NotNull final Map<String, String> params,
-      @NotNull final WithS3<T, E> withClient) throws E {
-    return AWSCommonParams.withAWSClients(params, new AWSCommonParams.WithAWSClients<T, E>() {
-      @Nullable
-      @Override
-      public T run(@NotNull AWSClients clients) throws E {
-        if (useSignatureVersion4(params)) {
-          clients.setS3SignerType(V4_SIGNER_TYPE);
+  public static <T, E extends Throwable> T withS3ClientShuttingDownImmediately(@NotNull final Map<String, String> params, @NotNull final WithS3<T, E> withClient) throws E {
+    return withS3Client(params, withClient, true);
+  }
+
+  public static <T, E extends Throwable> T withS3Client(@NotNull final Map<String, String> params, @NotNull final WithS3<T, E> withClient) throws E {
+    return withS3Client(params, withClient, false);
+  }
+
+  private static <T, E extends Throwable> T withS3Client(@NotNull final Map<String, String> params,
+                                                         @NotNull final WithS3<T, E> withClient,
+                                                         boolean shutdownImmediately) throws E {
+    return AWSCommonParams.withAWSClients(params, clients -> {
+      if (useSignatureVersion4(params)) {
+        clients.setS3SignerType(V4_SIGNER_TYPE);
+      }
+      clients.setDisablePathStyleAccess(disablePathStyleAccess(params));
+      patchAWSClientsSsl(clients, params);
+      final AmazonS3 s3Client = clients.createS3Client();
+      try {
+        return withClient.run(s3Client);
+      } finally {
+        if (shutdownImmediately) {
+          s3Client.shutdown();
         }
-        clients.setDisablePathStyleAccess(disablePathStyleAccess(params));
-        patchAWSClientsSsl(clients, params);
-        return withClient.run(clients.createS3Client());
       }
     });
   }
@@ -277,16 +300,11 @@ public class S3Util {
   }
 
   private static <T extends Transfer> Collection<T> withTransferManager(@NotNull final Map<String, String> s3Settings,
-      final TransferManagerConfiguration config, @NotNull final WithTransferManager<T> withTransferManager)
-      throws Throwable {
-    return AWSCommonParams.withAWSClients(s3Settings, new AWSCommonParams.WithAWSClients<Collection<T>, Throwable>() {
-      @NotNull
-      @Override
-      public Collection<T> run(@NotNull AWSClients clients) throws Throwable {
-        patchAWSClientsSsl(clients, s3Settings);
-        return jetbrains.buildServer.util.amazon.S3Util.withTransferManager(clients.createS3Client(), config, true,
-            withTransferManager);
-      }
+                                                                        @NotNull final TransferManagerConfiguration config,
+                                                                        @NotNull final WithTransferManager<T> withTransferManager) throws Throwable {
+    return AWSCommonParams.withAWSClients(s3Settings, clients -> {
+      patchAWSClientsSsl(clients, s3Settings);
+      return jetbrains.buildServer.util.amazon.S3Util.withTransferManager(clients.createS3Client(), true, withTransferManager);
     });
   }
 
@@ -297,14 +315,14 @@ public class S3Util {
     }
   }
 
-  public static String getContentType(File file) {
+  public static String getContentType(final File file) {
     String contentType = URLConnection.guessContentTypeFromName(file.getName());
     if (StringUtil.isNotEmpty(contentType)) {
       return contentType;
     }
     if (PROBE_CONTENT_TYPE_METHOD != null && FILE_TO_PATH_METHOD != null) {
       try {
-        Object result = PROBE_CONTENT_TYPE_METHOD.invoke(null, FILE_TO_PATH_METHOD.invoke(file));
+        final Object result = PROBE_CONTENT_TYPE_METHOD.invoke(null, FILE_TO_PATH_METHOD.invoke(file));
         if (result instanceof String) {
           contentType = (String) result;
         }
@@ -324,8 +342,8 @@ public class S3Util {
 
   private static Method getProbeContentTypeMethod() {
     try {
-      Class<?> filesClass = Class.forName("java.nio.file.Files");
-      Class<?> pathClass = Class.forName("java.nio.file.Path");
+      final Class<?> filesClass = Class.forName("java.nio.file.Files");
+      final Class<?> pathClass = Class.forName("java.nio.file.Path");
       if (filesClass != null && pathClass != null) {
         return filesClass.getMethod("probeContentType", pathClass);
       }
@@ -350,9 +368,9 @@ public class S3Util {
       final String correctRegion = extractCorrectedRegion(awsException);
       if (correctRegion != null) {
         LOGGER.debug("Running operation with corrected S3 region [" + correctRegion + "]", awsException);
-        final HashMap<String, String> correctedSettings = new HashMap<String, String>(settings);
+        final HashMap<String, String> correctedSettings = new HashMap<>(settings);
         correctedSettings.put(REGION_NAME_PARAM, correctRegion);
-        return withS3Client(correctedSettings, withCorrectedClient);
+        return withS3ClientShuttingDownImmediately(correctedSettings, withCorrectedClient);
       } else {
         throw awsException;
       }
@@ -386,7 +404,7 @@ public class S3Util {
     private final Map<String, String> myInvalids;
 
     public InvalidSettingsException(@NotNull final Map<String, String> invalids) {
-      myInvalids = new HashMap<String, String>(invalids);
+      myInvalids = new HashMap<>(invalids);
     }
 
     @Override
