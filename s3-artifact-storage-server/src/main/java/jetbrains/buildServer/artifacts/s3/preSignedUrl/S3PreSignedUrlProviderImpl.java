@@ -66,9 +66,6 @@ public class S3PreSignedUrlProviderImpl implements S3PreSignedUrlProvider {
       final Callable<String> resolver = () -> S3Util.withS3Client(ParamUtil.putSslValues(myServerPaths, params), client -> {
         final GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucketName, objectKey, httpMethod)
           .withExpiration(new Date(System.currentTimeMillis() + getUrlLifetimeSec() * 1000));
-        if (httpMethod == HttpMethod.GET) {
-          request.addRequestParameter("partNumber", "1");  // Hack to try to force a multi-part artifact download
-        }
         return client.generatePresignedUrl(request).toString();
       });
       if (httpMethod == HttpMethod.GET) {
